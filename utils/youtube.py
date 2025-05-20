@@ -1,11 +1,9 @@
 import os
 import requests
 import logging
-from datetime import datetime, timedelta
 
 logger = logging.getLogger("bot")
 
-# 環境変数からAPIキーを読み込む
 api_keys = [key.strip() for key in os.getenv("YOUTUBE_API_KEY", "").split(",") if key.strip()]
 if not api_keys:
     raise ValueError("❌ YOUTUBE_API_KEY が設定されていません。")
@@ -19,7 +17,7 @@ def fetch_youtube_data(url_params: dict, endpoint: str = "search") -> dict:
         params["key"] = api_key
 
         try:
-            response = requests.get(f"https://www.googleapis.com/youtube/v3/{endpoint}", params=params)
+            response = requests.get(f"https://www.googleapis.com/youtube/v3/{endpoint}", params=params, timeout=5)
             data = response.json()
 
             if response.status_code == 200:
@@ -45,12 +43,13 @@ def fetch_latest_video(channel_id: str):
         "channelId": channel_id,
         "order": "date",
         "maxResults": 1,
-        "type": "video"
     }
-    data = fetch_youtube_data(url_params)
+    data = fetch_youtube_data(url_params, endpoint="search")
+
     items = data.get("items", [])
     if not items:
         return None
+
     return items[0]
 
 def fetch_all_videos(channel_id: str, max_results: int = 50):
@@ -59,26 +58,24 @@ def fetch_all_videos(channel_id: str, max_results: int = 50):
         "channelId": channel_id,
         "order": "date",
         "maxResults": max_results,
-        "type": "video"
     }
-    data = fetch_youtube_data(url_params)
+    data = fetch_youtube_data(url_params, endpoint="search")
+
     return data.get("items", [])
 
 def fetch_video_details(video_id: str):
     url_params = {
         "part": "snippet,liveStreamingDetails",
-        "id": video_id
+        "id": video_id,
     }
-    return fetch_youtube_data(url_params, endpoint="videos").get("items", [{}])[0]
+    data = fetch_youtube_data(url_params, endpoint="videos")
+    items = data.get("items", [])
+    return items[0] if items else None
 
-def is_livestream(video):
-    live_details = video.get("liveStreamingDetails", {})
+def is_livestream(video_detail: dict) -> bool:
+    live_details = video_detail.get("liveStreamingDetails", {})
     return "actualStartTime" in live_details
 
-def convert_to_jst(utc_time_str: str) -> str:
-    try:
-        dt = datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%SZ")
-        jst = dt + timedelta(hours=9)
-        return jst.strftime("%Y/%m/%d %H:%M")
-    except Exception:
-        return "不明"
+def get_start_time(video_detail: dict) -> str:
+    live_details = video_detail.get("liveStreamingDetails", {})
+    return live_details.get("actualStartTime", "不明")
