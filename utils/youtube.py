@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger("bot")
 
+# 環境変数から API キーを読み込む（複数対応）
 api_keys = [key.strip() for key in os.getenv("YOUTUBE_API_KEY", "").split(",") if key.strip()]
 if not api_keys:
     raise ValueError("❌ YOUTUBE_API_KEY が設定されていません。")
@@ -17,7 +18,13 @@ def fetch_youtube_data(url_params: dict) -> dict:
         params["key"] = api_key
 
         try:
-            response = requests.get("https://www.googleapis.com/youtube/v3/search", params=params)
+            # search.list or videos.list に対応
+            base_url = (
+                "https://www.googleapis.com/youtube/v3/videos"
+                if "id" in params and "channelId" not in params
+                else "https://www.googleapis.com/youtube/v3/search"
+            )
+            response = requests.get(base_url, params=params)
             data = response.json()
 
             if response.status_code == 200:
@@ -52,31 +59,26 @@ def fetch_latest_video(channel_id: str):
 
     return items[0]
 
-def fetch_all_videos(channel_id: str, max_results: int = 500):
-    all_items = []
-    page_token = None
+def fetch_all_videos(channel_id: str, max_results: int = 50):
+    url_params = {
+        "part": "snippet",
+        "channelId": channel_id,
+        "order": "date",
+        "maxResults": max_results,
+    }
+    data = fetch_youtube_data(url_params)
 
-    while len(all_items) < max_results:
-        url_params = {
-            "part": "snippet",
-            "channelId": channel_id,
-            "order": "date",
-            "maxResults": min(50, max_results - len(all_items)),
-        }
-        if page_token:
-            url_params["pageToken"] = page_token
+    return data.get("items", [])
 
-        data = fetch_youtube_data(url_params)
-        items = data.get("items", [])
-        all_items.extend(items)
+def fetch_video_details(video_id: str) -> dict:
+    url_params = {
+        "part": "snippet,liveStreamingDetails",
+        "id": video_id,
+    }
+    data = fetch_youtube_data(url_params)
+    items = data.get("items", [])
+    return items[0] if items else {}
 
-        page_token = data.get("nextPageToken")
-        if not page_token:
-            break
-
-    return all_items
-
-def is_livestream(video):
+def is_livestream(video: dict) -> bool:
     live_details = video.get("liveStreamingDetails", {})
     return "actualStartTime" in live_details
-
