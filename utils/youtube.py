@@ -1,5 +1,3 @@
-# utils/youtube.py
-
 import os
 import requests
 import logging
@@ -13,13 +11,13 @@ if not api_keys:
 def get_api_key(index):
     return api_keys[index]
 
-def fetch_youtube_data(url_params: dict, endpoint: str = "search") -> dict:
+def fetch_youtube_data(url_params: dict) -> dict:
     for i, api_key in enumerate(api_keys):
         params = dict(url_params)
         params["key"] = api_key
 
         try:
-            response = requests.get(f"https://www.googleapis.com/youtube/v3/{endpoint}", params=params)
+            response = requests.get("https://www.googleapis.com/youtube/v3/search", params=params)
             data = response.json()
 
             if response.status_code == 200:
@@ -37,8 +35,7 @@ def fetch_youtube_data(url_params: dict, endpoint: str = "search") -> dict:
             logger.exception("❌ YouTube APIリクエストエラー")
             raise e
 
-    logger.error("❌ すべてのAPIキーがクォータ超過またはエラーを返しました。")
-    raise RuntimeError("❌ 全てのAPIキーが quotaExceeded またはエラーです。")
+    raise RuntimeError("❌ 全てのAPIキーが quotaExceeded です。")
 
 def fetch_latest_video(channel_id: str):
     url_params = {
@@ -48,29 +45,38 @@ def fetch_latest_video(channel_id: str):
         "maxResults": 1,
     }
     data = fetch_youtube_data(url_params)
+
     items = data.get("items", [])
-    return items[0] if items else None
+    if not items:
+        return None
 
-def fetch_all_videos(channel_id: str, max_results: int = 10):
-    url_params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "order": "date",
-        "maxResults": max(1, min(max_results, 50)),  # API制限に従う
-    }
-    data = fetch_youtube_data(url_params)
-    return data.get("items", [])
+    return items[0]
 
-def fetch_video_details(video_id: str):
-    url_params = {
-        "part": "snippet,liveStreamingDetails",
-        "id": video_id,
-    }
-    data = fetch_youtube_data(url_params, endpoint="videos")
-    items = data.get("items", [])
-    return items[0] if items else None
+def fetch_all_videos(channel_id: str, max_results: int = 500):
+    all_items = []
+    page_token = None
 
-def is_livestream(video_detail: dict):
-    """fetch_video_details() で取得したデータを渡す前提"""
-    return "liveStreamingDetails" in video_detail and "actualStartTime" in video_detail["liveStreamingDetails"]
+    while len(all_items) < max_results:
+        url_params = {
+            "part": "snippet",
+            "channelId": channel_id,
+            "order": "date",
+            "maxResults": min(50, max_results - len(all_items)),
+        }
+        if page_token:
+            url_params["pageToken"] = page_token
+
+        data = fetch_youtube_data(url_params)
+        items = data.get("items", [])
+        all_items.extend(items)
+
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+
+    return all_items
+
+def is_livestream(video):
+    live_details = video.get("liveStreamingDetails", {})
+    return "actualStartTime" in live_details
 
