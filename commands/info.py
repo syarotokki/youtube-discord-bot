@@ -10,7 +10,7 @@ class BotInfo(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="bot_info", description="Botの情報（稼働時間・リソース使用量など）")
-    async def bot_info(self, interaction: discord.Interaction):
+    async def info(self, interaction: discord.Interaction):  # ← ここを修正
         uptime = time.time() - start_time
         process = psutil.Process()
         mem = process.memory_info().rss / 1024**2
