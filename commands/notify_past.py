@@ -1,64 +1,60 @@
-# commands/notify_past.py
 import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.config import load_config
 from utils.youtube import fetch_all_videos
-import datetime
+from utils.checks import is_developer
 
-DEVELOPER_ID = 1105948117624434728
-
-class NotifyPast(commands.Cog):
+class NotifyPastCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="notify_past", description="過去の動画を一括で通知します（最大10件）")
+    @app_commands.command(name="notify_past", description="過去のYouTube動画をすべて通知します（開発者限定）")
     async def notify_past(self, interaction: discord.Interaction):
-        if interaction.user.id != DEVELOPER_ID:
-            await interaction.response.send_message("❌ このコマンドは開発者のみ使用できます。", ephemeral=True)
+        if not is_developer(interaction):
+            await interaction.response.send_message("❌ このコマンドは開発者専用です。", ephemeral=True)
             return
+
+        await interaction.response.defer(thinking=True)
 
         config = load_config()
-        guild_id = str(interaction.guild.id)
-
+        guild_id = str(interaction.guild_id)
         if guild_id not in config:
-            await interaction.response.send_message("❌ このサーバーはまだ /subscribe されていません。", ephemeral=True)
+            await interaction.followup.send("❌ このサーバーではチャンネルが設定されていません。")
             return
 
-        settings = config[guild_id]
-        youtube_channel_id = settings["youtube_channel_id"]
-        notify_channel_id = settings["notify_channel_id"]
+        channel_id = config[guild_id]["youtube_channel_id"]
+        notify_channel_id = int(config[guild_id]["notify_channel_id"])
+        notify_channel = interaction.guild.get_channel(notify_channel_id)
 
-        videos = fetch_all_videos(youtube_channel_id, max_results=10)
-        if not videos:
-            await interaction.response.send_message("❌ 動画の取得に失敗しました。", ephemeral=True)
+        if not notify_channel:
+            await interaction.followup.send("❌ 通知チャンネルが見つかりません。")
             return
 
-        channel = self.bot.get_channel(int(notify_channel_id))
-        if not channel:
-            await interaction.response.send_message("❌ 通知チャンネルが見つかりません。", ephemeral=True)
-            return
+        videos = fetch_all_videos(channel_id)
 
-        await interaction.response.send_message("✅ 通知を送信しました。", ephemeral=True)
-
+        count = 0
         for video in reversed(videos):
+            snippet = video["snippet"]
             video_id = video["id"].get("videoId")
             if not video_id:
                 continue
 
-            title = video["snippet"]["title"]
-            published_at = video["snippet"]["publishedAt"]
-            published_time = datetime.datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ")
-            published_time = published_time.strftime("%Y/%m/%d %H:%M")
+            title = snippet["title"]
             url = f"https://www.youtube.com/watch?v={video_id}"
-
-            is_live = "liveBroadcastContent" in video["snippet"] and video["snippet"]["liveBroadcastContent"] == "live"
+            published_at = snippet["publishedAt"]
+            is_live = "liveBroadcastContent" in snippet and snippet["liveBroadcastContent"] == "live"
 
             if is_live:
-                await channel.send(f"🔴 **過去のライブ配信**\n**{title}**\n開始時刻：{published_time}\n{url}")
+                message = f"🔴 **ライブ配信が始まりました！**\n{title}\n{url}\n開始日時: {published_at}"
             else:
-                await channel.send(f"📺 **過去の動画**\n**{title}**\n公開日時：{published_time}\n{url}")
+                message = f"📢 **新しい動画が公開されました！**\n{title}\n{url}"
+
+            await notify_channel.send(message)
+            count += 1
+
+        await interaction.followup.send(f"✅ {count} 件の過去動画を通知しました。")
 
 async def setup(bot):
-    await bot.add_cog(NotifyPast(bot))
+    await bot.add_cog(NotifyPastCommand(bot))
 
