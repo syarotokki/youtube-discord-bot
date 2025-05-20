@@ -1,5 +1,3 @@
-# utils/youtube.py
-
 import os
 import requests
 import logging
@@ -12,11 +10,9 @@ api_keys = [key.strip() for key in os.getenv("YOUTUBE_API_KEY", "").split(",") i
 if not api_keys:
     raise ValueError("❌ YouTube APIキーが設定されていません。環境変数 YOUTUBE_API_KEY を確認してください。")
 
-
 def get_api_key(index):
     """インデックスでAPIキーを取得"""
     return api_keys[index]
-
 
 def fetch_youtube_data(url_params: dict) -> dict:
     """
@@ -39,8 +35,9 @@ def fetch_youtube_data(url_params: dict) -> dict:
                 error_reason = data["error"]["errors"][0].get("reason", "")
                 if error_reason == "quotaExceeded":
                     logger.warning(f"⚠️ APIキー {i+1}/{len(api_keys)} がクォータ超過。次のキーを試します。")
-                    continue
+                    continue  # 次のキーへ
                 else:
+                    # その他のエラー（APIキーが無効、認証エラーなど）
                     logger.error(f"❌ YouTube APIエラー: {data['error']}")
                     raise Exception(f"YouTube API error: {data['error']}")
 
@@ -48,46 +45,42 @@ def fetch_youtube_data(url_params: dict) -> dict:
             logger.exception("❌ YouTube APIリクエスト中に例外が発生しました")
             raise e
 
+    # すべてのキーが使えなかった
     raise RuntimeError("❌ すべてのYouTube APIキーが使えなくなりました（quotaExceeded）")
-
 
 def is_livestream(video):
     """
-    動画がライブ配信かどうかを判定
+    ライブ配信かどうかを判定（liveStreamingDetails.actualStartTime が存在するかどうか）
     """
     live_details = video.get("liveStreamingDetails", {})
     return "actualStartTime" in live_details
 
-
-def fetch_latest_video(channel_id):
+def fetch_all_videos(channel_id, max_results=50):
     """
-    指定されたチャンネルの最新動画またはライブ配信を取得
+    指定されたチャンネルの過去動画を最大 max_results 件取得
     """
-    params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "maxResults": 1,
-        "order": "date",
-        "type": "video"
-    }
-    data = fetch_youtube_data(params)
+    videos = []
+    next_page_token = None
 
-    if "items" in data and data["items"]:
-        return data["items"][0]
-    return None
+    while len(videos) < max_results:
+        params = {
+            "part": "snippet",
+            "channelId": channel_id,
+            "maxResults": min(50, max_results - len(videos)),
+            "order": "date",
+            "type": "video"
+        }
+        if next_page_token:
+            params["pageToken"] = next_page_token
 
+        data = fetch_youtube_data(params)
 
-def fetch_past_videos(channel_id, max_results=10):
-    """
-    指定されたチャンネルの過去動画を取得（最大 max_results 件）
-    """
-    params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "maxResults": max_results,
-        "order": "date",
-        "type": "video"
-    }
-    data = fetch_youtube_data(params)
+        items = data.get("items", [])
+        videos.extend(items)
 
-    return data.get("items", [])
+        next_page_token = data.get("nextPageToken")
+        if not next_page_token:
+            break
+
+    return videos
+
