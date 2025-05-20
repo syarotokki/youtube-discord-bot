@@ -1,10 +1,11 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.youtube import fetch_all_videos, is_livestream
+from utils.youtube import fetch_all_videos, fetch_video_details, is_livestream
 from utils.config import load_config
 from utils.checks import is_developer
 from datetime import datetime, timedelta
+import asyncio
 
 class NotifyPast(commands.Cog):
     def __init__(self, bot):
@@ -33,6 +34,7 @@ class NotifyPast(commands.Cog):
                 continue
 
             videos = fetch_all_videos(yt_channel_id, max_results=30)
+
             for video in reversed(videos):
                 video_id = video["id"].get("videoId")
                 if not video_id:
@@ -41,8 +43,10 @@ class NotifyPast(commands.Cog):
                 title = video["snippet"]["title"]
                 url = f"https://www.youtube.com/watch?v={video_id}"
 
-                if is_livestream(video):
-                    start_time = video.get("liveStreamingDetails", {}).get("actualStartTime", "")
+                # 動画の詳細を取得して liveStreamingDetails を含める
+                details = fetch_video_details(video_id)
+                if is_livestream(details):
+                    start_time = details.get("liveStreamingDetails", {}).get("actualStartTime", "")
                     if start_time:
                         jst_time = self.convert_to_jst(start_time)
                         message = f"🔴 ライブ配信（過去）\n**{title}**\n{url}\n🕒 開始時刻: {jst_time}"
@@ -52,7 +56,7 @@ class NotifyPast(commands.Cog):
                     message = f"📺 過去の動画\n**{title}**\n{url}"
 
                 await channel.send(message)
-                await discord.utils.sleep_until(discord.utils.utcnow() + timedelta(seconds=1))
+                await asyncio.sleep(1)  # 連続投稿防止（1秒待機）
 
             success += 1
 
